@@ -58,7 +58,7 @@ def authorize_overwrite(filename):
     """
     Returns True if FILENAME should be overwritten, False otherwise.
     """
-    if file_exists(filename):
+    if file_exists(filename) and not args.force:
         msg = "{} exists. Overwrite? (y/N): ".format(filename)
         ans = raw_input(msg).strip()
         try:
@@ -433,6 +433,11 @@ if __name__ == '__main__':
             dest='ifile',
             default=None,
             help='Specify an input filename.')
+        parser.add_argument('-f',
+            '--force',
+            default=False,
+            action='store_true',
+            help='Do not prompt before overwriting files, properties, etc.')
         parser.add_argument('-o',
             '--output',
             dest='ofile',
@@ -451,13 +456,13 @@ if __name__ == '__main__':
         # modify or return the UID
         uid_parser = subparsers.add_parser('uid',
             help='Get/set the PIF UID.')
-        uid_parser.add_argument('-f',
-            '--force',
-            default=False,
-            action='store_true',
-            help='Force set the UID. This will overwrite the current UID, ' \
-                 'and is irreversible. The resulting file will no longer ' \
-                 'associate with the original file.')
+        # uid_parser.add_argument('-f',
+        #     '--force',
+        #     default=False,
+        #     action='store_true',
+        #     help='Force set the UID. This will overwrite the current UID, ' \
+        #          'and is irreversible. The resulting file will no longer ' \
+        #          'associate with the original file.')
         uid_parser.add_argument('arglist',
             metavar='UID',
             type=str,
@@ -469,11 +474,11 @@ if __name__ == '__main__':
         # property
         property_parser = subparsers.add_parser('property',
             help='Gets/sets properties in the input PIF record.')
-        property_parser.add_argument('-f',
-            '--force',
-            action='store_true',
-            help='Forcibly insert this property. If another matching ' \
-                 'property exists with the same name, it will be overwritten.')
+        # property_parser.add_argument('-f',
+        #     '--force',
+        #     action='store_true',
+        #     help='Forcibly insert this property. If another matching ' \
+        #          'property exists with the same name, it will be overwritten.')
         property_parser.add_argument('--units',
             help='Specify the units associated with the property.')
         property_parser.add_argument('--condition',
