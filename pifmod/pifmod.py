@@ -17,6 +17,7 @@ import shutil
 import re
 import ast
 import json
+from StringIO import StringIO
 #from pexpect import run, spawn
 try:
     from pypif import pif
@@ -91,7 +92,7 @@ def check_tag(pifdata, tag):
 # property
 def property(pifdata):
     """
-    Gets/sets a property in the PIF-formatted data. There are four
+    Gets/sets a property in the PIF-formatted data. There are several
     anticipated use cases:
 
         1. pifmod -i material.pif property NAME
@@ -111,10 +112,14 @@ def property(pifdata):
             #       specified.
             #   --data-type={MACHINE_LEARNING|COMPUTATIONAL|EXPERIMENTAL}
             #       Sets the type of data the makes up this Property.
-            #   --contact="NAME[,EMAIL]"
+            # START HERE -- describe how to parse name: last,first=email then
+            #            -- implement
+            #   --contact="NAME[=EMAIL]"
             #       Person to contact, with optional email, for more
             #       information on this property. Multiple contacts may be
-            #       specified.
+            #       specified. NAME can be "GIVEN FAMILY" or "GIVEN", but
+            #       should not include prefixes, suffixes, etc. GIVEN names
+            #       with spaces will not parse correctly.
             #   --tag="TAG"
             #       Any string TAG stored alongside the data. Multiple tags
             #       may be specified.
@@ -127,6 +132,11 @@ def property(pifdata):
             # Extracts a property from the PIF-formatted file PIF named
             # NAME and adds it to material.pif. If the force flag (-f) is
             # specified, an existing property will be overwritten.
+
+        5. pifmod -i material.pif property --list [PIF]
+            # Lists the property names in material.pif and, if specified,
+            # in the PIF-formatted PIF file as well. Note that this only
+            # lists the keys and not the values.
 
     Parameters
     ----------
@@ -180,8 +190,8 @@ def property(pifdata):
         """
         # ensure all character strings are quoted, otherwise they will
         # be treated as variables and raise an Exception
-        quoteRE = re.compile(r"""([^'""'])([a-zA-Z_]\w*)""")
-        vstr = re.sub(quoteRE, r'\1"\2"', vstr)
+        quoteRE = re.compile(r"""(\b[a-zA-Z_]\w*)""")
+        vstr = re.sub(quoteRE, r'"\1"', vstr)
         # do not use the built in eval as this is a huge security
         # vulnerability. ast.literal_eval only allows evaluation to
         # basic types, lists, tuples, dicts and None.
@@ -225,12 +235,22 @@ def property(pifdata):
         kwds = {}
         if cont is None:
             return None
+        # split name and email
         try:
             name,email = cont.strip().split(',')
-            kwds['email'] = email
+            kwds['email'] = email.strip()
         except ValueError:
             name = cont.strip()
-        kwds['name'] = name
+        # split given name from family name
+        try:
+            name = name.split()
+            given = name[0]
+            family = ' '.join(name[1:])
+        except ValueError:
+            given = name.strip()
+            family = None
+        kwds['given'] = given
+        kwds['family'] = family
         return Person(**kwds)
     def parse_tag(tag):
         return tag
@@ -262,8 +282,25 @@ def property(pifdata):
     if pifdata.properties is None:
         pifdata.properties = []
     proplist = pifdata.properties
+    # only list the available property names
+    if args.list:
+        ostream = StringIO()
+        ostream.write("PIF data\n")
+        for prop in proplist:
+            ostream.write("- {}\n".format(prop.name))
+        try:
+            properties = args.arglist[0]
+            properties = parse_json(properties)
+            ostream.write("{}\n".format(args.arglist[0]))
+            for prop in properties:
+                ostream.write("- {}\n".format(prop.name))
+        except IndexError:
+            pass
+        result = ostream.getvalue()
+        ostream.close()
+        return result
     nargs = len(args.arglist)
-    # This is longer than it should be, and could use some repartitioning.
+    # This is longer than it should be, and could use some refactoring.
     # But the logic is this:
     # 1. If only one argument was given, we are getting or setting a property
     #    PROPERTY --> getting, PROPERTY=VALUE --> setting
@@ -299,14 +336,14 @@ def property(pifdata):
             contacts = [parse_contact(c) for c in args.contacts]
             if contacts != [] : kwds['contacts'] = contacts
             tags = [parse_tag(t) for t in args.tags]
-            if tag != []: kwds['tags'] = tags
+            if tags != []: kwds['tags'] = tags
             # add the property to pifdata
             newprop = Property(**kwds)
             property_adder(proplist, prop_exists=(prop is not None))(newprop)
-            return '{}\n'.format(pif.dumps(pifdata))
+            return '{}'.format(pif.dumps(pifdata))
         else:
-            return '{}\n'.format(
-                get_property(proplist, k, case_sensitive=False))
+            prop = get_property(proplist, k, case_sensitive=False)
+            return pif.dumps(prop)
     elif nargs == 2:
         # reading a property from a json-formatted source file
         ifile, propname = args.arglist
@@ -320,11 +357,11 @@ def property(pifdata):
             raise ValueError(msg)
         # create a function to add the property
         property_adder(proplist, prop_exists=(dst is not None))(src)
-        return '{}\n'.format(pif.dumps(pifdata))
+        return '{}'.format(pif.dumps(pifdata))
     else:
         # should never get here if the parser custom action did its job.
         msg = "If you're seeing this, the custom parser didn't do its job."
-        raise ValueError(msg)
+        raise RuntimeError(msg)
 
 
 # uid
@@ -479,6 +516,12 @@ if __name__ == '__main__':
         #     action='store_true',
         #     help='Forcibly insert this property. If another matching ' \
         #          'property exists with the same name, it will be overwritten.')
+        property_parser.add_argument('--list',
+            dest='list',
+            default=False,
+            action='store_true',
+            help='Lists the keys from the pif file and from the property ' \
+                 'file (if provided) and exits.')
         property_parser.add_argument('--units',
             help='Specify the units associated with the property.')
         property_parser.add_argument('--condition',
