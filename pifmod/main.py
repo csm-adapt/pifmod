@@ -19,12 +19,10 @@ import ast
 import json
 from StringIO import StringIO
 #from pexpect import run, spawn
-try:
-    from pypif import pif
-except ImportError:
-    sys.path.append('/Users/bkappes/src/citrine/pypif')
-    from pypif import pif
+from pypif import pif
 from pypif.pif import Property, Value, Person
+#
+from pifmod.linkages import sagittariidae
 
 # exceptions
 class LocalException(Exception):
@@ -191,7 +189,7 @@ def property(pifdata):
         # ensure all character strings are quoted, otherwise they will
         # be treated as variables and raise an Exception
         quoteRE = re.compile(r"""(\b[a-zA-Z_]\w*)""")
-        vstr = re.sub(quoteRE, r'"\1"', vstr)
+        vstr = re.sub(quoteRE, r'"\1"', str(vstr))
         # do not use the built in eval as this is a huge security
         # vulnerability. ast.literal_eval only allows evaluation to
         # basic types, lists, tuples, dicts and None.
@@ -256,10 +254,11 @@ def property(pifdata):
         return tag
     def parse_json(filename):
         # which key/keys are equivalent to scalar values?
-        scalarsRE = re.compile(r'value.*?\b', re.IGNORECASE)
+        valueRE = re.compile(r'value.*?\b', re.IGNORECASE)
         # TODO: which key/keys are equivalent to vectors? matrices?
         # load the json file
-        jdata = json.load(open(filename))
+        with open(filename) as ifs:
+            jdata = json.load(ifs)
         # create an empty list of properties
         props = []
         for k,v in iter(jdata.items()):
@@ -268,14 +267,17 @@ def property(pifdata):
                 # [scalar/vector/matrix equivalent][, units[, ...]]
                 # create a Property from this data.
                 for key in v.keys():
-                    if re.match(scalarsRE, key):
-                        v['scalars'] = v[key]
+                    if re.match(valueRE, key):
+                        vtype, val = infer_value(v[key])
+                        v[vtype] = v[key]
                         del v[key]
                 prop = Property(k, **v)
             except AttributeError:
                 # list, scalar, etc. -- something that doesn't have the
                 # map defining the characteristics of the entry.
-                prop = Property(k, scalars=v)
+                vtype, val = infer_value(v)
+                kwds = { vtype : val }
+                prop = Property(k, **kwds)
             props.append(prop)
         return props
     # parse command line options
@@ -300,6 +302,18 @@ def property(pifdata):
         ostream.close()
         return result
     nargs = len(args.arglist)
+    # were any other parameters specified?
+    kwds = {}
+    units = parse_units(args.units)
+    if units is not None: kwds['units'] = units
+    conditions = [parse_condition(c) for c in args.conditions]
+    if conditions != [] : kwds['conditions'] = conditions
+    dataType = parse_data_type(args.datatype)
+    if dataType is not None: kwds['data_type'] = dataType
+    contacts = [parse_contact(c) for c in args.contacts]
+    if contacts != [] : kwds['contacts'] = contacts
+    tags = [parse_tag(t) for t in args.tags]
+    if tags != []: kwds['tags'] = tags
     # This is longer than it should be, and could use some refactoring.
     # But the logic is this:
     # 1. If only one argument was given, we are getting or setting a property
@@ -323,20 +337,9 @@ def property(pifdata):
             vtype,v = infer_value(v) # scalar, vector, matrix
             # construct the arguments to Property...
             # ... name
-            kwds = {'name' : k}
+            kwds['name'] = k
             # ... scalars, vectors, or matrices, as appropriate
             kwds[vtype] = v
-            # ... were any other parameters specified?
-            units = parse_units(args.units)
-            if units is not None: kwds['units'] = units
-            conditions = [parse_condition(c) for c in args.conditions]
-            if conditions != [] : kwds['conditions'] = conditions
-            dataType = parse_data_type(args.datatype)
-            if dataType is not None: kwds['data_type'] = dataType
-            contacts = [parse_contact(c) for c in args.contacts]
-            if contacts != [] : kwds['contacts'] = contacts
-            tags = [parse_tag(t) for t in args.tags]
-            if tags != []: kwds['tags'] = tags
             # add the property to pifdata
             newprop = Property(**kwds)
             property_adder(proplist, prop_exists=(prop is not None))(newprop)
@@ -352,6 +355,8 @@ def property(pifdata):
         # parse the properties present in the source file
         props = parse_json(ifile)
         src = get_property(props, propname, case_sensitive=False)
+        for k,v in iter(kwds.items()):
+            setattr(src, k, v)
         if src is None:
             msg = '{} was not found in {}.'.format(propname, ifile)
             raise ValueError(msg)
@@ -424,6 +429,15 @@ def main ():
         rval = str(property(pifdata))
     elif args.action == 'uid':
         rval = str(uid(pifdata))
+    elif args.action == 'sagittariidae':
+        if not isinstance(pifdata, list):
+            pifdata = [pifdata]
+        add_link = sagittariidae.link_factory(
+			projectID='nq3X4-concept-inconel718',
+			host='http://sagittariidae.adapt.mines.edu')
+        for p in pifdata:
+            add_link(p)
+        return json.dumps(pifdata)
     else:
         msg = '{} is not a recognized action.'.format(args.action)
         raise ValueError(msg)
@@ -583,6 +597,9 @@ if __name__ == '__main__':
                  'added to the output. As before, a property that already ' \
                  'exists will only be overwritten if the force (-f) flag is ' \
                  'specified.')
+        # sagittariidae reference
+        sagittariidae_parser = subparsers.add_parser('sagittariidae',
+            help='Adds sagittariidae links to the PIF record.')
         #
         args = parser.parse_args()
         # check for correct number of positional parameters
@@ -604,11 +621,13 @@ if __name__ == '__main__':
     except SystemExit, e: # sys.exit()
         raise e
     except LocalException, e:
-        sys.stderr.write('{}\n'.format(str(e)))
+        if False:
+            sys.stderr.write('{}\n'.format(str(e)))
         os._exit(1)
     except Exception, e:
-        print 'ERROR, UNEXPECTED EXCEPTION'
-        print str(e)
-        traceback.print_exc()
+        if False:
+            print 'ERROR, UNEXPECTED EXCEPTION'
+            print str(e)
+            traceback.print_exc()
         os._exit(1)
 #end 'if __name__ == '__main__':'

@@ -13,7 +13,6 @@ config = {
 	'install_requires': [
 		'nose',
 		'pypif'],
-	'packages': ['pifmod'],
 	'scripts': ['bin/pifmod'],
 	'name': 'pifmod'
 }

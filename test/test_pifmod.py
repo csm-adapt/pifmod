@@ -4,6 +4,7 @@ import shlex
 import json
 from pypif import pif
 import difflib
+from pifmod.linkages import sagittariidae
 
 # To test, simply run
 # [...]$ nosetests (optionally with -v)
@@ -33,8 +34,13 @@ def compare_dictionaries(a, b):
 			return all([equals(l, r) for l,r in zip(lhs, rhs)])
 		else:
 			return lhs == rhs
-	keys_match = all([ka == kb for ka, kb in
-		zip(sorted(a.keys()), sorted(b.keys()))])
+	akeys = sorted(a.keys())
+	bkeys = sorted(b.keys())
+	keys_match = (len(akeys()) == len(bkeys()))
+	for a in akeys:
+		if not keys_match: break
+		if a not in bkeys:
+			keys_match = False
 	values_match = all([equals(a[k], b[k]) for k in a.keys()])
 	return keys_match and values_match
 
@@ -227,6 +233,29 @@ class TestClass: # keep this the same
 		assert compare_dictionaries(expected.as_dictionary(),
 									received.as_dictionary()), \
 			'{}'.format(strdiff(pif.dumps(expected), pif.dumps(received)))
+
+	def test_linkages_sagittariidae(self):
+		# try:
+		with open('data/package.json') as ifs:
+			pifdata = pif.load(ifs)
+		add_link = sagittariidae.link_factory(
+			projectID='nq3X4-concept-inconel718',
+			host='http://sagittariidae.adapt.mines.edu')
+		for p in pifdata:
+			add_link(p)
+		with open('delme.json', 'w') as ofs:
+			pif.dump(pifdata, ofs)
+		#except Exception, e:
+			# import sys
+			# sys.stdout.write(str(e))
+			# sys.stdout.flush()
+			# sys.stdout.write('ERROR: test_linkages\n')
+			# sys.stdout.flush()
+			# sys.stdout.write(pif.dumps(ensure_variable(pifdata))[:50])
+			# sys.stdout.flush()
+			# sys.stdout.write(ensure_variable(rval))
+			# sys.stdout.flush()
+			# raise Exception(str(e))
 
 	def tearDown(self):
 		# clean up
